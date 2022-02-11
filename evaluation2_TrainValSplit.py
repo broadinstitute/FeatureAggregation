@@ -3,7 +3,7 @@ import os
 from tqdm import tqdm
 import pandas as pd
 
-# Seeds
+## Seeds
 import random
 import numpy as np
 
@@ -18,7 +18,6 @@ from utils import CalculatePercentReplicating
 import utils
 import utils_benchmark
 from pycytominer.operations.transform import RobustMAD
-
 
 NUM_WORKERS = 0
 device = torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
@@ -40,10 +39,10 @@ print('Loading:', model_name)
 
 BS = 32  # batch size
 nr_cells = 400  # nr of cells sampled from each well (no more than 1200 found in compound plates)
-input_dim = 1938 # 1938
+input_dim = 1938  # 1938
 kFilters = 1  # times DIVISION of filters in model
-latent_dim = 256//kFilters
-output_dim = 128//kFilters
+latent_dim = 256 // kFilters
+output_dim = 128 // kFilters
 model = MLP(input_dim=input_dim, latent_dim=latent_dim, output_dim=output_dim, k=kFilters)
 
 TrainSplit = 0.8
@@ -102,9 +101,11 @@ train_loader = data.DataLoader(trainset, batch_size=BS, shuffle=False, collate_f
 val_loader = data.DataLoader(valset, batch_size=BS, shuffle=False, collate_fn=utils.my_collate,
                              drop_last=False, pin_memory=False, num_workers=NUM_WORKERS)
 
-#%% Calculate NCEloss + Create feature dataframes
-trainDF = pd.DataFrame()
-valDF = pd.DataFrame()
+# %% Calculate NCEloss + Create feature dataframes
+trainDF_MLP = pd.DataFrame()
+trainDF_BM = pd.DataFrame()
+valDF_MLP = pd.DataFrame()
+valDF_BM = pd.DataFrame()
 
 print('Calculating Features')
 with torch.no_grad():
@@ -113,7 +114,10 @@ with torch.no_grad():
         feats, _ = model(points)
         # Append everything to dataframes
         c1 = pd.concat([pd.DataFrame(feats), pd.Series(labels)], axis=1)
-        trainDF = pd.concat([trainDF, c1])
+        trainDF_MLP = pd.concat([trainDF_MLP, c1])
+
+        d1 = pd.concat([pd.DataFrame(torch.median(points, dim=1).values), pd.Series(labels)], axis=1)
+        trainDF_BM = pd.concat([trainDF_BM, d1])
 
 # Validation
 with torch.no_grad():
@@ -123,60 +127,88 @@ with torch.no_grad():
 
         # Append everything to dataframes
         c2 = pd.concat([pd.DataFrame(feats), pd.Series(labels)], axis=1)
-        valDF = pd.concat([valDF, c2])
+        valDF_MLP = pd.concat([valDF_MLP, c2])
 
+        d2 = pd.concat([pd.DataFrame(torch.median(points, 1).values), pd.Series(labels)], axis=1)
+        valDF_BM = pd.concat([valDF_BM, d2])
 
-#%% Rename columns and normalize features
+# %% Rename columns and normalize features
 # Rename feature columns
-trainDF.columns = [f"f{x}" for x in range(trainDF.shape[1]-1)] + ['labels']
-valDF.columns = [f"f{x}" for x in range(valDF.shape[1]-1)] + ['labels']
-print('trainDF shape: ', trainDF.shape)
-print('valDF shape:', valDF.shape)
+trainDF_MLP.columns = [f"f{x}" for x in range(trainDF_MLP.shape[1] - 1)] + ['Metadata_labels']
+valDF_MLP.columns = [f"f{x}" for x in range(valDF_MLP.shape[1] - 1)] + ['Metadata_labels']
+trainDF_BM.columns = [f"f{x}" for x in range(trainDF_BM.shape[1] - 1)] + ['Metadata_labels']
+valDF_BM.columns = [f"f{x}" for x in range(valDF_BM.shape[1] - 1)] + ['Metadata_labels']
+
+print('trainDF_MLP shape: ', trainDF_MLP.shape)
+print('valDF_MLP shape:', valDF_MLP.shape)
 
 # Robust MAD normalize features
-scaler = RobustMAD()
-fitted_scaler1 = scaler.fit(trainDF.iloc[:, :-1])
-fitted_scaler2 = scaler.fit(valDF.iloc[:, :-1])
+scaler1 = RobustMAD()
+scaler2 = RobustMAD()
+scaler3 = RobustMAD()
+scaler4 = RobustMAD()
+fitted_scaler1 = scaler1.fit(trainDF_MLP.iloc[:, :-1])
+fitted_scaler2 = scaler2.fit(valDF_MLP.iloc[:, :-1])
+fitted_scaler3 = scaler3.fit(trainDF_BM.iloc[:, :-1])
+fitted_scaler4 = scaler4.fit(valDF_BM.iloc[:, :-1])
 
-trainDF.iloc[:, :-1] = fitted_scaler1.transform(trainDF.iloc[:, :-1])
-valDF.iloc[:, :-1] = fitted_scaler2.transform(valDF.iloc[:, :-1])
+trainDF_MLP.iloc[:, :-1] = fitted_scaler1.transform(trainDF_MLP.iloc[:, :-1])
+valDF_MLP.iloc[:, :-1] = fitted_scaler2.transform(valDF_MLP.iloc[:, :-1])
+trainDF_BM.iloc[:, :-1] = fitted_scaler3.transform(trainDF_BM.iloc[:, :-1])
+valDF_BM.iloc[:, :-1] = fitted_scaler4.transform(valDF_BM.iloc[:, :-1])
 
-#%% Save all the dataframes to .csv files!
+# %% Save all the dataframes to .csv files!
 if save_features_to_csv:
-    trainDF.to_csv(r'outputs/MLP_profiles_plate1.csv', index=False)
-    valDF.to_csv(r'outputs/MLP_profiles_plate2.csv', index=False)
+    trainDF_MLP.to_csv(r'outputs/MLP_profiles_trainDF_MLP.csv', index=False)
+    valDF_MLP.to_csv(r'outputs/MLP_profiles_valDF_MLP.csv', index=False)
+    trainDF_BM.to_csv(r'outputs/MLP_profiles_trainDF_BM.csv', index=False)
+    valDF_BM.to_csv(r'outputs/MLP_profiles_valDF_BM.csv', index=False)
 
-#%% Analyze feature distributions
-#for df in [plate1df, plate2df, plate3df, plate4df]:
-df = valDF.iloc[:, :-1] # Only pass the features
-utils.featureCorrelation(df, 16)
-utils.compoundCorrelation(df, 16)
+# %% Analyze feature distributions
+# for df in [plate1df, plate2df, plate3df, plate4df]:
+nrRows = 16
+df_MLP = valDF_MLP.iloc[:, :-1]  # Only pass the features
+df_BM = valDF_BM.iloc[:, :-1]
 
-utils.createUmap(valDF, 30) # need the labels for Umap
+utils.featureCorrelation(df_MLP, nrRows)
+utils.featureCorrelation(df_BM, nrRows)
 
-#%% Calculate Percent Replicating
+utils.compoundCorrelation(df_MLP, nrRows)
+utils.compoundCorrelation(df_BM, nrRows)
+
+# UMAP
+utils.createUmap(valDF_MLP, 30)  # need the labels for Umap
+utils.createUmap(valDF_BM, 30)
+
+
+# %% Calculate Percent Replicating on training set used
 print('Calculating Percent Replicating')
 
-save_name = "TVsplit_generalized_MLP_noNegcon_pertIname_nR3"  # "TVsplit_allWells_gene_nR3"  ||  "TVsplit_OnlyControls_well_nR3"
-group_by_feature = 'labels'
+save_name = "MLP_nRvariable_Rtvsplit"  # "TVsplit_allWells_gene_nR3"  ||  "TVsplit_OnlyControls_well_nR3"
+group_by_feature = 'Metadata_labels'
 
-n_replicatesT = int(round(trainDF['labels'].value_counts().mean()))
-n_replicatesV = int(round(valDF['labels'].value_counts().mean()))
-print('Train nR, Val nR:', n_replicatesT,',', n_replicatesV)
+n_replicatesT = int(round(trainDF_MLP['Metadata_labels'].value_counts().mean()))
+n_replicatesV = int(round(valDF_MLP['Metadata_labels'].value_counts().mean()))
+print('Train nR, Val nR:', n_replicatesT, ',', n_replicatesV)
 n_samples = 10000
 
+dataframes = [trainDF_MLP, trainDF_BM, valDF_MLP, valDF_BM]
+nReplicates = [n_replicatesT, n_replicatesT, n_replicatesV, n_replicatesV]
+descriptions = ['trainMLP', 'trainBM', 'valMLP', 'valBM']
+
 corr_replicating_df = pd.DataFrame()
-for plates, nR in zip([trainDF, valDF], [n_replicatesT, n_replicatesV]):
-    temp_df = CalculatePercentReplicating(plates, group_by_feature, nR, n_samples)
+for plates, nR, desc in zip(dataframes, nReplicates, descriptions):
+    temp_df = CalculatePercentReplicating(plates, group_by_feature, nR, n_samples, desc)
     corr_replicating_df = pd.concat([corr_replicating_df, temp_df], ignore_index=True)
 
 print(corr_replicating_df[['Description', 'Percent_Replicating']].to_markdown(index=False))
 
-utils_benchmark.distribution_plot(df=corr_replicating_df, output_file=f"{save_name}_PR.png", metric="Percent Replicating")
+utils_benchmark.distribution_plot(df=corr_replicating_df, output_file=f"{save_name}_PR.png",
+                                  metric="Percent Replicating")
 
 corr_replicating_df['Percent_Replicating'] = corr_replicating_df['Percent_Replicating'].astype(float)
 
 plot_corr_replicating_df = (
-    corr_replicating_df.rename(columns={'Modality':'Perturbation'})
-    .drop(columns=['Null_Replicating','Value_95','Replicating'])
+    corr_replicating_df.rename(columns={'Modality': 'Perturbation'})
+        .drop(columns=['Null_Replicating', 'Value_95', 'Replicating'])
 )

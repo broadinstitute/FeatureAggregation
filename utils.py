@@ -69,10 +69,13 @@ def filterData(df, filter, encode=None, mode='default'):
 #######################
 #%% EVALUATION STUFF ##
 #######################
-def createUmap(df, nSamples):
-    plt.figure(figsize=(20, 15), dpi=300)
-    labels = df.labels.iloc[:nSamples]
-    features = df.iloc[:nSamples, :-1]
+def createUmap(df, nSamples, mode='default'):
+    plt.figure(figsize=(14, 10), dpi=300)
+    labels = df.Metadata_labels.iloc[:nSamples]
+    if mode == 'default':
+        features = df.iloc[:nSamples, :-1]
+    elif mode == 'old':
+        features = df.iloc[:nSamples, 12:]
     reducer = umap.UMAP()
     embedding = reducer.fit(features)
     umap.plot.points(embedding, labels=labels, theme='fire')
@@ -83,7 +86,7 @@ def createUmap(df, nSamples):
 
 
 def compoundCorrelation(df, Ncompounds=20):
-    plt.figure(figsize=(20, 15), dpi=300)
+    plt.figure(figsize=(14, 10), dpi=300)
     df = df.transpose()
     df = df.iloc[:, :Ncompounds]
     Var_Corr = df.corr()
@@ -95,7 +98,7 @@ def compoundCorrelation(df, Ncompounds=20):
 
 
 def featureCorrelation(df, Nfeatures=20):
-    plt.figure(figsize=(20, 15), dpi=300)
+    plt.figure(figsize=(14, 10), dpi=300)
     df = df.iloc[:, :Nfeatures]
     Var_Corr = df.corr()
     #plot the heatmap
@@ -104,7 +107,7 @@ def featureCorrelation(df, Nfeatures=20):
     plt.show()
     return
 
-def CalculatePercentReplicating(dfs, group_by_feature, n_replicates, n_samples=10000):
+def CalculatePercentReplicating(dfs, group_by_feature, n_replicates, n_samples=10000, description='Unknown'):
     """
 
     :param dfs: list of plate dataframes that are analysed together.
@@ -139,9 +142,8 @@ def CalculatePercentReplicating(dfs, group_by_feature, n_replicates, n_samples=1
                                                                     replicating_corr,
                                                                     how='right')
 
-    features = 'MLP'
 
-    corr_replicating_df = corr_replicating_df.append({'Description': f'{features}',
+    corr_replicating_df = corr_replicating_df.append({'Description': f'{description}',
                                                       'Replicating': replicating_corr,
                                                       'Null_Replicating': null_replicating,
                                                       'Percent_Replicating': '%.1f' % prop_95_replicating,
