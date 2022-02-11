@@ -1,3 +1,11 @@
+# My files
+__pycache__/
+wandb/
+InspirationScripts/
+datasets/
+dask-worker-space/
+old_networks/
+
 # History files
 .Rhistory
 .Rapp.history
